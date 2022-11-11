@@ -49,7 +49,7 @@ x_test_imputed = imputer.fit_transform(x_test)
 
 
 ### outlier detection
-outliers_fraction = 0.2
+outliers_fraction = 0.25
 clf = svm.OneClassSVM(nu=outliers_fraction, kernel="rbf")
 clf.fit(x_train_imputed)
 outliers_prediction = clf.predict(x_train_imputed)
@@ -88,7 +88,7 @@ x_test_features = selector.transform(x_test_features)
 # x_train_features = model.transform(x_train_features)
 
 ### split data set
-train_validation_ratio = 0.999
+train_validation_ratio = 0.99
 cut_index = int(len(x_train_features)*train_validation_ratio)
 x_validation_features = x_train_features[cut_index:]
 y_validation = y_train_clean[cut_index:]
