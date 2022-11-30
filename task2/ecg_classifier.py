@@ -22,21 +22,121 @@ from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regressi
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel, RBF, ConstantKernel
 
-# file_path = 'task1/'
-file_path = ''
-x_test = pd.read_csv(file_path + 'X_test.csv')
-x_train = pd.read_csv(file_path + 'X_train.csv')
-y_train = pd.read_csv(file_path + 'y_train.csv')
-x_test.drop('id', inplace=True, axis=1)
-x_train.drop('id', inplace=True, axis=1)
-y_train.drop('id', inplace=True, axis=1)
+from biosppy.signals import ecg
+import time
 
-y_train_np = np.asarray(y_train)
+file_path = 'task2/'
+# file_path = ''
+# x_test = pd.read_csv(file_path + 'X_test.csv')
+# x_train = pd.read_csv(file_path + 'X_train.csv')
+# y_train = pd.read_csv(file_path + 'y_train.csv')
+# x_test.drop('id', inplace=True, axis=1)
+# x_train.drop('id', inplace=True, axis=1)
+# y_train.drop('id', inplace=True, axis=1)
+
+# x_train_np = np.asarray(x_train)
+# x_test_np = np.asarray(x_test)
+# y_train_np = np.asarray(y_train)
+
+# np.save(file_path + 'X_train', x_train_np)
+# np.save(file_path + 'X_test', x_test_np)
+# np.save(file_path + 'y_train', y_train_np)
+
+
+x_train = np.load(file_path + 'X_train.npy')
+x_test = np.load(file_path + 'X_test.npy')
+y_train = np.load(file_path + 'y_train.npy')
+
+
+
+
+x_train_shorted = []
+for i in range(len(x_train)):
+    x_train_shorted.append(x_train[i][~np.isnan(x_train[i])])
+x_train_shorted = np.asarray(x_train_shorted)
 
 ### imputer
-imputer = SimpleImputer(missing_values=np.nan, strategy='median')
-x_train_imputed = imputer.fit_transform(x_train)
-x_test_imputed = imputer.fit_transform(x_test)
+# imputer = SimpleImputer(missing_values=np.nan, strategy='median')
+# x_train_imputed = imputer.fit_transform(x_train)
+# x_test_imputed = imputer.fit_transform(x_test)
+
+start = time.time()
+# mean_template = []
+std_template = []
+heart_rate = []
+for i in range(len(x_train)):
+    signal = np.asarray(x_train_shorted[i][100:])
+    out = ecg.ecg(signal=signal, sampling_rate=300., show=False)
+    # mean_template.append(np.mean(out['templates'], axis=0))
+    std_template.append(np.std(out['templates'], axis=0))
+    heart_rate.append(out['heart_rate'])
+print('time',time.time() - start)
+
+# np.save(file_path + 'mean_template', mean_template)
+np.save(file_path + 'std_template', std_template)
+np.save(file_path + 'heart_rate', heart_rate)
+
+mean_templates = np.load(file_path + 'mean_template.npy')
+std_templates = np.load(file_path + 'std_template.npy')
+heart_rates = np.load(file_path + 'heart_rate.npy')
+
+std_template[np.concatenate(y_train[:100]) == 3]
+mean_template[np.concatenate(y_train[:100]) == 3]
+
+
+i = 0
+signal = np.asarray(x_train_shorted[i][100:])
+out = ecg.ecg(signal=signal, sampling_rate=300., show=False)
+
+signal_fd = []
+for i in range(100):
+    signal = mean_templates[i]
+    signal_fd.append(np.fft.fft(signal))
+signal_freq = np.fft.fftfreq(len(signal),1/300)
+
+fig= plt.figure()
+for i in range(100):
+    plt.plot(signal_freq,signal_fd[i])
+plt.show()
+
+R_peaks = np.argmax(mean_templates[:,:90], axis=1)
+mean_templates_reduced = mean_templates[R_peaks==60]
+y_train_redued = y_train[R_peaks==60]
+
+R_height = np.max(mean_templates_reduced[:,:90], axis=1)
+T_height = np.max(mean_templates_reduced[:,90:], axis=1)
+means = np.mean(mean_templates_reduced, axis=1)
+S_height = np.min(mean_templates_reduced[:,60:], axis=1)
+Q_height = np.min(mean_templates_reduced[:,:60], axis=1)
+QRS_duration = np.argmin(mean_templates_reduced[:,60:], axis=1)+60 - np.argmin(mean_templates_reduced[:,:60], axis=1)
+heart_rate_variation = []
+heart_rate_minmax = []
+for i in range(len(heart_rate)):
+    heart_rate_variation.append(np.mean(np.abs(np.gradient(heart_rate[i]))))
+    heart_rate_minmax.append(np.max(heart_rate[i]) - np.min(heart_rate[i]))
+
+relative_minmaxdiff = (means - S_height) /(R_peaks - S_height)
+mean_templates_class1_and_4 = mean_templates_reduced[relative_minmaxdiff < 0.2]
+mean_templates_class2_and_3 = mean_templates_reduced[relative_minmaxdiff >= 0.2]
+y_train_class1_and_4 = y_train_redued[relative_minmaxdiff < 0.2]
+
+fig= plt.figure()
+plt.plot(np.arange(len(x_train_shorted[R_peaks==25][0])),x_train_shorted[R_peaks==25][0])
+plt.show()
+
+fig = plt.figure()
+for i in range(200):
+    plt.plot(np.arange(len(mean_templates_reduced[i])), np.gradient(mean_templates_reduced[i]))
+plt.show()
+
+fig = plt.figure()
+for i in range(200):
+    plt.plot(np.arange(len(mean_templates_class1_and_4[i])), mean_templates_class1_and_4[i])
+plt.show()
+fig = plt.figure()
+for i in range(200):
+    plt.plot(np.arange(len(mean_templates_class1_and_4[i])), mean_templates_class2_and_3[i])
+plt.show()
 
 ### outlier detection
 pca = PCA(n_components=200)
