@@ -17,13 +17,47 @@ from sklearn import linear_model
 from sklearn.kernel_approximation import Nystroem
 from sklearn.pipeline import make_pipeline
 
-from sklearn.feature_selection import VarianceThreshold, SelectKBest, f_regression
-
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel, RBF, ConstantKernel
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.datasets import make_moons, make_circles, make_classification
+from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 from biosppy.signals import ecg
 import time
+
+names = [
+    "Nearest Neighbors",
+    "Linear SVM",
+    "RBF SVM",
+    "Decision Tree",
+    "Random Forest",
+    "Neural Net",
+    "AdaBoost",
+    "Naive Bayes",
+    "QDA",
+    # "Gaussian Process",
+]
+
+classifiers = [
+    KNeighborsClassifier(3),
+    SVC(kernel="linear", C=0.025),
+    SVC(gamma=2, C=1),
+    DecisionTreeClassifier(max_depth=5),
+    RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
+    MLPClassifier(alpha=1, max_iter=1000),
+    AdaBoostClassifier(),
+    GaussianNB(),
+    QuadraticDiscriminantAnalysis(),
+    # GaussianProcessClassifier(1.0 * RBF(1.0)),
+]
 
 file_path = 'task2/'
 # file_path = ''
@@ -45,7 +79,7 @@ file_path = 'task2/'
 
 x_train = np.load(file_path + 'X_train.npy')
 x_test = np.load(file_path + 'X_test.npy')
-y_train = np.load(file_path + 'y_train.npy')
+y_train_validation = np.load(file_path + 'y_train.npy')
 
 
 
@@ -60,28 +94,28 @@ x_train_shorted = np.asarray(x_train_shorted)
 # x_train_imputed = imputer.fit_transform(x_train)
 # x_test_imputed = imputer.fit_transform(x_test)
 
-start = time.time()
-# mean_template = []
-std_template = []
-heart_rate = []
-for i in range(len(x_train)):
-    signal = np.asarray(x_train_shorted[i][100:])
-    out = ecg.ecg(signal=signal, sampling_rate=300., show=False)
-    # mean_template.append(np.mean(out['templates'], axis=0))
-    std_template.append(np.std(out['templates'], axis=0))
-    heart_rate.append(out['heart_rate'])
-print('time',time.time() - start)
+# start = time.time()
+# # mean_template = []
+# std_template = []
+# heart_rate = []
+# for i in range(len(x_train)):
+#     signal = np.asarray(x_train_shorted[i][100:])
+#     out = ecg.ecg(signal=signal, sampling_rate=300., show=False)
+#     # mean_template.append(np.mean(out['templates'], axis=0))
+#     std_template.append(np.std(out['templates'], axis=0))
+#     heart_rate.append(out['heart_rate'])
+# print('time',time.time() - start)
 
 # np.save(file_path + 'mean_template', mean_template)
-np.save(file_path + 'std_template', std_template)
-np.save(file_path + 'heart_rate', heart_rate)
+# np.save(file_path + 'std_template', std_template)
+# np.save(file_path + 'heart_rate', heart_rate)
 
 mean_templates = np.load(file_path + 'mean_template.npy')
 std_templates = np.load(file_path + 'std_template.npy')
-heart_rates = np.load(file_path + 'heart_rate.npy')
+heart_rates = np.load(file_path + 'heart_rate.npy', allow_pickle=True)
 
-std_template[np.concatenate(y_train[:100]) == 3]
-mean_template[np.concatenate(y_train[:100]) == 3]
+# std_templates[np.concatenate(y_train[:100]) == 3]
+# mean_templates[np.concatenate(y_train[:100]) == 3]
 
 
 i = 0
@@ -94,144 +128,102 @@ for i in range(100):
     signal_fd.append(np.fft.fft(signal))
 signal_freq = np.fft.fftfreq(len(signal),1/300)
 
-fig= plt.figure()
-for i in range(100):
-    plt.plot(signal_freq,signal_fd[i])
-plt.show()
+# fig= plt.figure()
+# for i in range(100):
+#     plt.plot(signal_freq,signal_fd[i])
+# plt.show()
 
 R_peaks = np.argmax(mean_templates[:,:90], axis=1)
 mean_templates_reduced = mean_templates[R_peaks==60]
-y_train_redued = y_train[R_peaks==60]
+std_templates_reduced = std_templates[R_peaks==60]
+y_train_redued = y_train_validation[R_peaks==60]
 
+R_peaks_reduced = R_peaks[R_peaks==60]
 R_height = np.max(mean_templates_reduced[:,:90], axis=1)
 T_height = np.max(mean_templates_reduced[:,90:], axis=1)
-means = np.mean(mean_templates_reduced, axis=1)
 S_height = np.min(mean_templates_reduced[:,60:], axis=1)
 Q_height = np.min(mean_templates_reduced[:,:60], axis=1)
 QRS_duration = np.argmin(mean_templates_reduced[:,60:], axis=1)+60 - np.argmin(mean_templates_reduced[:,:60], axis=1)
-heart_rate_variation = []
-heart_rate_minmax = []
-for i in range(len(heart_rate)):
-    heart_rate_variation.append(np.mean(np.abs(np.gradient(heart_rate[i]))))
-    heart_rate_minmax.append(np.max(heart_rate[i]) - np.min(heart_rate[i]))
 
-relative_minmaxdiff = (means - S_height) /(R_peaks - S_height)
+means = np.mean(mean_templates_reduced, axis=1)
+mean_std =np.mean(std_templates_reduced, axis=1)
+
+parameters_train_validation = np.zeros((len(R_height), 7))
+for i in range(len(R_height)):
+    parameters_train_validation[i] = [R_height[i], T_height[i], S_height[i], Q_height[i], QRS_duration[i], means[i], mean_std[i]]
+    
+parameters_train_validation = np.concatenate((parameters_train_validation, mean_templates_reduced), axis=1)
+parameters_train_validation = np.concatenate((parameters_train_validation, mean_templates_reduced, std_templates_reduced), axis=1)
+# parameters_train_validation = mean_templates_reduced
+# # heart_rate_variation = []
+# heart_rate_minmax = []
+# for i in range(len(heart_rates)):
+#     # heart_rate_variation.append(np.mean(np.abs(np.gradient(heart_rates[i]))))
+#     heart_rate_minmax.append(np.max(heart_rates[i]) - np.min(heart_rates[i]))
+
+relative_minmaxdiff = (means - S_height) /(R_peaks_reduced - S_height)
 mean_templates_class1_and_4 = mean_templates_reduced[relative_minmaxdiff < 0.2]
 mean_templates_class2_and_3 = mean_templates_reduced[relative_minmaxdiff >= 0.2]
 y_train_class1_and_4 = y_train_redued[relative_minmaxdiff < 0.2]
 
-fig= plt.figure()
-plt.plot(np.arange(len(x_train_shorted[R_peaks==25][0])),x_train_shorted[R_peaks==25][0])
-plt.show()
+# fig= plt.figure()
+# plt.plot(np.arange(len(x_train_shorted[R_peaks==25][0])),x_train_shorted[R_peaks==25][0])
+# plt.show()
 
-fig = plt.figure()
-for i in range(200):
-    plt.plot(np.arange(len(mean_templates_reduced[i])), np.gradient(mean_templates_reduced[i]))
-plt.show()
+# fig = plt.figure()
+# for i in range(200):
+#     plt.plot(np.arange(len(mean_templates_reduced[i])), np.gradient(mean_templates_reduced[i]))
+# plt.show()
 
-fig = plt.figure()
-for i in range(200):
-    plt.plot(np.arange(len(mean_templates_class1_and_4[i])), mean_templates_class1_and_4[i])
-plt.show()
-fig = plt.figure()
-for i in range(200):
-    plt.plot(np.arange(len(mean_templates_class1_and_4[i])), mean_templates_class2_and_3[i])
-plt.show()
+# fig, ax = plt.subplots()
+# ax.plot(mean_templates_reduced[0])
+# # ax.plot(mean_templates_reduced[0]- std_templates_reduced[0])
+# ax.fill_between(np.arange(len(mean_templates_reduced[i])),mean_templates_reduced[0]- std_templates_reduced[0],mean_templates_reduced[0]+ std_templates_reduced[0], alpha=0.4)
+# plt.show()
 
-### outlier detection
-pca = PCA(n_components=200)
-x_reduced = pca.fit_transform(x_train_imputed)
-GMM = GaussianMixture(n_components=1, random_state=0, reg_covar=1e-1).fit(x_reduced)
-phi = -GMM.score_samples(x_reduced)
-
-outlier_threshold=3440
-outliers = x_train_imputed[phi > outlier_threshold, :]
-x_train_clean = x_train_imputed[phi <= outlier_threshold, :]
-y_train_clean = y_train_np[phi <= outlier_threshold, :]
-
-print(outliers.shape[0]/x_train_imputed.shape[0])
-
-idx=np.linspace(0,x_train.shape[0]-1,x_train.shape[0])
-plt.plot(idx[phi>outlier_threshold], phi[phi>outlier_threshold], 'r*')
-plt.plot(idx[phi<=outlier_threshold], phi[phi<=outlier_threshold], 'g*')
-plt.show()
-
-# pca_test = PCA(n_components=200)
-x_reduced_test = pca.fit_transform(x_test_imputed)
-phi_test = -GMM.score_samples(x_reduced_test)
-
-x_test_clean = x_test_imputed[phi_test <= outlier_threshold, :]
-
-idx=np.linspace(0,x_test.shape[0]-1,x_test.shape[0])
-plt.plot(idx[phi_test>outlier_threshold], phi_test[phi_test>outlier_threshold], 'r*')
-plt.plot(idx[phi_test<=outlier_threshold], phi_test[phi_test<=outlier_threshold], 'g*')
-plt.show()
-
-# outliers_fraction = 0.1
-# clf = svm.OneClassSVM(nu=outliers_fraction, kernel="rbf")
-# clf.fit(x_train_imputed)
-# outliers_prediction = clf.predict(x_train_imputed)
-# outliers = x_train_imputed[outliers_prediction == -1]
-# x_train_clean = x_train_imputed[outliers_prediction == 1]
-# y_train_clean = y_train_np[outliers_prediction == 1]
-
-#### feature detection
-sel = VarianceThreshold(threshold=100)
-sel.fit(x_train_clean)
-x_train_features = sel.transform(x_train_clean)
-x_test_features = sel.transform(x_test_clean)
-
-selector = SelectKBest(f_regression, k=100)
-selector.fit(x_train_features, y_train_clean[:, 0])
-scores = -np.log10(selector.pvalues_)
-scores /= scores.max()
-
-X_indices = np.arange(x_train_features.shape[-1])
-plt.figure(1)
-plt.clf()
-plt.bar(X_indices - 0.05, scores, width=0.2)
-plt.title("Feature univariate score")
-plt.xlabel("Feature number")
-plt.ylabel(r"Univariate score ($-Log(p_{value})$)")
-plt.show()
-
-x_train_features = x_train_features[:, selector.get_support()]
-x_test_features = x_test_features[:, selector.get_support()]
-
-train_validation_ratio = 0.9999
-# cut_index = int(len(x_train_features) * train_validation_ratio)
-cut_index = int(len(x_train_features) - 10)
-x_validation_features = x_train_features[cut_index:]
-y_validation = y_train_clean[cut_index:]
-x_train_features = x_train_features[:cut_index]
-y_train_valid = y_train_clean[:cut_index]
+y_train_redued = y_train_redued.reshape(len(y_train_redued))
+train_validation_ratio = 0.9
+cut_index = int(len(parameters_train_validation) * train_validation_ratio)
+# cut_index = int(len(parameters_train_validation) - 10)
+parameters_validation = parameters_train_validation[cut_index:]
+y_validation = y_train_redued[cut_index:]
+parameters_train = parameters_train_validation[:cut_index]
+y_train = y_train_redued[:cut_index]
 
 ### normalize x
-x_train_features_normalized = np.copy(x_train_features)
-x_validation_features_normalized = np.copy(x_validation_features)
-x_test_features_normalized = np.copy(x_test_features)
-for i in range(len(x_train_features[0])):
-    mean = np.nanmean(x_train_features[:, i])
-    std = np.nanstd(x_train_features[:, i])
-    x_train_features_normalized[:, i] = (x_train_features[:, i] - mean) / std
-    x_validation_features_normalized[:, i] = (x_validation_features[:, i] - mean) / std
-    x_test_features_normalized[:, i] = (x_test_features[:, i] - mean) / std
+x_train_features_normalized = np.copy(parameters_train)
+x_validation_features_normalized = np.copy(parameters_validation)
+# x_test_features_normalized = np.copy(x_test_features)
+for i in range(len(parameters_train[0])):
+    mean = np.nanmean(parameters_train[:, i])
+    std = np.nanstd(parameters_train[:, i])
+    x_train_features_normalized[:, i] = (parameters_train[:, i] - mean) / std
+    x_validation_features_normalized[:, i] = (parameters_validation[:, i] - mean) / std
+    # x_test_features_normalized[:, i] = (x_test_features[:, i] - mean) / std
 
-### regression
-reg_lin = linear_model.LinearRegression().fit(x_train_features_normalized, y_train_valid)
+print('classification')
+### classification
+# iterate over classifiers
+for name, clf in zip(names, classifiers):
+    # ax = plt.subplot(len(datasets), len(classifiers) + 1, i)
+    clf.fit(x_train_features_normalized, y_train)
+    score = clf.score(x_validation_features_normalized, y_validation)
+    print(name, score)
+
+reg_lin = linear_model.LinearRegression().fit(x_train_features_normalized, y_train)
 y_validation_predicted_lin = reg_lin.predict(x_validation_features_normalized)
 score_linear = r2_score(y_validation_predicted_lin, y_validation)
 RMSE_linear = np.sqrt(np.mean((y_validation_predicted_lin - y_validation) ** 2))
 RMSE_linear_rel = np.linalg.norm(y_validation_predicted_lin - y_validation, 'fro') / np.linalg.norm(y_validation, 'fro')
 
-reg_bay = linear_model.BayesianRidge().fit(x_train_features_normalized, y_train_valid[:, 0])
+reg_bay = linear_model.BayesianRidge().fit(x_train_features_normalized, y_train[:, 0])
 y_validation_predicted_bay = reg_bay.predict(x_validation_features_normalized)
 y_train_predicted_bay = reg_bay.predict(x_train_features_normalized)
 score_bayes = r2_score(y_validation_predicted_bay, y_validation)
 RMSE_bayes = np.sqrt(np.mean((y_validation_predicted_bay - y_validation) ** 2))
 RMSE_bayes_rel = np.linalg.norm(y_validation_predicted_bay - y_validation, 'fro') / np.linalg.norm(y_validation, 'fro')
 
-# reg_log = linear_model.LogisticRegression(max_iter=500).fit(x_train_features_normalized, y_train_valid[:, 0])
+# reg_log = linear_model.LogisticRegression(max_iter=500).fit(x_train_features_normalized, y_train[:, 0])
 # y_validation_predicted_log = reg_log.predict(x_validation_features_normalized)
 # score_log = r2_score(y_validation_predicted_log, y_validation)
 # RMSE_log = np.sqrt(np.mean((y_validation_predicted_log - y_validation) ** 2))
@@ -245,8 +237,8 @@ kernel = RBF(length_scale=[10] * len(x_train_features_normalized.T),
                                                                                                        0.1, 0.5])
 
 gpr = GaussianProcessRegressor(kernel=kernel, random_state=0, normalize_y=True).fit(x_train_features_normalized,
-                                                                                    y_train_valid)
-#
+                                                                                    y_train)
+
 y_validation_predicted_gpr = gpr.predict(x_validation_features_normalized)
 y_train_predicted_gpr = gpr.predict(x_train_features_normalized)
 score_gpr = r2_score(y_validation_predicted_gpr, y_validation)
@@ -267,11 +259,11 @@ plt.plot(np.linspace(0, y_validation.shape[0] - 1, y_validation.shape[0]), y_val
          marker='o', markerfacecolor='None', linestyle='None')
 plt.show()
 
-plt.plot(np.linspace(0, y_train_valid.shape[0] - 1, y_train_valid.shape[0]), y_train_valid[:, 0], c='k', marker='*',
+plt.plot(np.linspace(0, y_train.shape[0] - 1, y_train.shape[0]), y_train[:, 0], c='k', marker='*',
          linestyle='None')
-plt.plot(np.linspace(0, y_train_valid.shape[0] - 1, y_train_valid.shape[0]), y_train_predicted_gpr, c='g', marker='o',
+plt.plot(np.linspace(0, y_train.shape[0] - 1, y_train.shape[0]), y_train_predicted_gpr, c='g', marker='o',
          markerfacecolor='None', linestyle='None')
-plt.plot(np.linspace(0, y_train_valid.shape[0] - 1, y_train_valid.shape[0]), y_train_predicted_bay, c='g', marker='o',
+plt.plot(np.linspace(0, y_train.shape[0] - 1, y_train.shape[0]), y_train_predicted_bay, c='g', marker='o',
          markerfacecolor='None', linestyle='None')
 plt.show()
 
